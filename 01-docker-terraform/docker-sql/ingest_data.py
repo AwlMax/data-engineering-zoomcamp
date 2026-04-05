@@ -31,6 +31,13 @@ parse_dates = [
     "lpep_dropoff_datetime"
 ]
 
+dtype_taxi_zone_lookup = {
+    "LocationID": "Int64",
+    "Borough": "str",
+    "Zone": "str",
+    "service_zone": "str",
+}
+
 @click.command()
 @click.option('--pg-user', default='root', help='PostgreSQL user')
 @click.option('--pg-pass', default='root', help='PostgreSQL password')
@@ -49,16 +56,26 @@ def run(pg_user, pg_pass, pg_host, pg_port, pg_db, year, month, target_table, ch
     pg_db   = 'ny_taxi'
 
     target_table = 'green_taxi_data'
+    taxi_zone_lookup_table = 'taxi_zone_lookup'
 
     chunksize=100000
 
     csv = f'green_tripdata_{year}-{month}.csv'
+    url = 'https://github.com/DataTalksClub/nyc-tlc-data/releases/download/misc/taxi_zone_lookup.csv'
+
     engine = create_engine(f'postgresql+psycopg://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}')
 
     df_iter = pd.read_csv(
         csv,
         dtype=dtype,
         parse_dates=parse_dates,
+        iterator=True,
+        chunksize=chunksize
+    )
+
+    df_iter_taxi_zone = pd.read_csv(
+        url,
+        dtype=dtype_taxi_zone_lookup,
         iterator=True,
         chunksize=chunksize
     )
@@ -79,6 +96,24 @@ def run(pg_user, pg_pass, pg_host, pg_port, pg_db, year, month, target_table, ch
             con=engine, 
             if_exists='append'
         )
+
+    second = True
+    for df_chunk in tqdm(df_iter_taxi_zone):
+
+        if second:
+            df_chunk.head(n=0).to_sql(
+                name=taxi_zone_lookup_table, 
+                con=engine, 
+                if_exists='replace'
+            )
+            second = False
+
+        df_chunk.to_sql(
+            name=taxi_zone_lookup_table, 
+            con=engine, 
+            if_exists='append'
+        )
+
 
 if __name__ == '__main__':
     run()
